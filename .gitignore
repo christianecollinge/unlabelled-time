@@ -1,0 +1,17 @@
+.DS_Store
+node_modules/
+.env
+.env.*
+!.env.example
+coverage/
+dist/
+.wrangler/
+*.log
+credentials*.json
+client_secret*.json
+*.pem
+*.key
+.next/
+*.tsbuildinfo
+.data/
+next-env.d.ts

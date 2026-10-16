@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.claude
+tests
+docs
+*.tsbuildinfo
+npm-debug.log*
+README.md
+CLAUDE.md
+AGENTS.md
+.env*
+.data
+scripts

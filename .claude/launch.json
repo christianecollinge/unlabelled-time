@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "time", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 4330 },
+    { "name": "fake-keycloak", "runtimeExecutable": "npm", "runtimeArgs": ["run", "fake-keycloak"], "port": 4320 },
+    {
+      "name": "time-signin",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "KEYCLOAK_ISSUER=http://localhost:4320/realms/dev",
+        "KEYCLOAK_CLIENT_ID=time",
+        "APP_ORIGIN=http://localhost:4330",
+        "SESSION_SECRET=local-development-only-not-a-real-secret",
+        "npm",
+        "run",
+        "dev"
+      ],
+      "port": 4330
+    }
+  ]
+}
