@@ -1,4 +1,4 @@
-# emee — Next.js standalone image for Cloud Run.
+# Unlabelled Time — Next.js standalone image for Cloud Run.
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -15,5 +15,7 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+# Pictures served as they are, such as the Unlabelled mark in the header.
+COPY --from=builder /app/public ./public
 EXPOSE 8080
 CMD ["node", "server.js"]
