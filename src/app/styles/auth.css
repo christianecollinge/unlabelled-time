@@ -1,0 +1,227 @@
+/* Unlabelled Time's own sign-in screens (signed out, no access).
+ *
+ * They mirror the sign-in page at login.unlabelled.cc
+ * (emee: keycloak-theme/unlabelled/login/resources/css/unlabelled.css), so the two
+ * read as one place: paper, a hairline under the logo, an Anton heading with a
+ * dot, the action in a white square card, faint radar rings. They hold that
+ * page's literal colours, deliberately not the app's tokens, and stay light
+ * whatever the app's appearance setting. When that page's palettes change,
+ * change the same values here.
+ */
+
+.auth-page {
+  --a-ink: #2c363f;
+  --a-muted: #455149;
+  --a-line: #dde3d3;
+  --a-accent: #8f2946;
+  --a-button: #e75a7c;
+  --a-button-hover: #ef7593;
+  --a-button-ink: #210f18;
+  --a-dot: #e75a7c;
+  --a-paper: #f7f7f7;
+  --logo-green: var(--a-button);
+  --logo-ink: var(--a-ink);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 100dvh;
+  padding: 0 max(28px, calc((100vw - 1120px) / 2)) 64px;
+  background: var(--a-paper);
+  color: var(--a-ink);
+  color-scheme: light;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+.auth-page[data-palette="mint-wine"] {
+  --a-ink: #210124;
+  --a-muted: #59415a;
+  --a-line: #d6ede0;
+  --a-accent: #750d37;
+  --a-button: #750d37;
+  --a-button-hover: #610a2d;
+  --a-button-ink: #fefffe;
+  --a-dot: #750d37;
+}
+.auth-page[data-palette="peony-plum"] {
+  --a-ink: #16001e;
+  --a-muted: #643655;
+  --a-line: #f1d3e2;
+  --a-accent: #7f2982;
+  --a-button: #7f2982;
+  --a-button-hover: #69216c;
+  --a-button-ink: #fefffe;
+  --a-dot: #f7717d;
+}
+
+/* The radar's rings, top right, as on the login page. */
+.auth-page::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  width: 720px;
+  height: 720px;
+  right: -230px;
+  top: -270px;
+  border-radius: 50%;
+  background: repeating-radial-gradient(circle, transparent 0 84px, var(--a-line) 84px 85px);
+  -webkit-mask-image: radial-gradient(circle, #000 52%, transparent 71%);
+  mask-image: radial-gradient(circle, #000 52%, transparent 71%);
+  pointer-events: none;
+}
+
+.auth-head {
+  display: flex;
+  align-items: center;
+  height: 80px;
+  margin-bottom: 72px;
+  border-bottom: 1px solid var(--a-line);
+}
+.auth-page .brand {
+  padding: 0;
+}
+.auth-page .brand .logo {
+  height: 26px;
+  width: auto;
+  display: block;
+}
+
+.auth-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
+  column-gap: 80px;
+  align-items: start;
+}
+
+.auth-eyebrow {
+  margin: 18px 0 20px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.9px;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+.auth-page h1 {
+  margin: 0;
+  font-family: Anton, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 400;
+  font-size: clamp(40px, 6vw, 78px);
+  line-height: 1.06;
+  letter-spacing: -1.2px;
+  text-transform: uppercase;
+  color: var(--a-ink);
+}
+.auth-dot {
+  color: var(--a-dot);
+}
+.auth-copy > p:not(.auth-eyebrow) {
+  margin: 28px 0 0;
+  padding-top: 18px;
+  max-width: 360px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--a-muted);
+  background: linear-gradient(var(--a-accent), var(--a-accent)) left top / 31px 1px no-repeat;
+}
+
+.auth-card {
+  margin-top: 18px;
+  padding: 36px;
+  background: #fff;
+  border: 1px solid var(--a-line);
+  box-shadow: 0 22px 55px -26px #20202230;
+}
+.auth-button {
+  display: block;
+  min-height: 46px;
+  padding: 13px 21px;
+  background: var(--a-button);
+  color: var(--a-button-ink);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  text-decoration: none;
+  transition: background-color .18s, transform .18s;
+}
+.auth-button:hover {
+  background: var(--a-button-hover);
+  transform: translateY(-1px);
+}
+.auth-button:focus-visible {
+  outline: 2px solid var(--a-accent);
+  outline-offset: 4px;
+}
+.auth-card-note {
+  margin: 16px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--a-muted);
+  text-align: center;
+}
+
+/* The note on the card's corner. */
+.auth-note {
+  position: absolute;
+  top: 148px;
+  right: max(4px, calc((100vw - 1120px) / 2 - 46px));
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 16px;
+  background: #fff;
+  border: 1px solid var(--a-line);
+  box-shadow: 0 22px 55px -26px #20202230;
+  font-size: 12px;
+  font-weight: 500;
+  transform: rotate(-3deg);
+  pointer-events: none;
+}
+.auth-note > span {
+  font-size: 24px;
+  line-height: 1;
+  color: var(--a-button);
+}
+.auth-note small {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--a-muted);
+}
+
+@media (max-width: 900px) {
+  .auth-head {
+    margin-bottom: 40px;
+  }
+  .auth-main {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 28px;
+  }
+  .auth-eyebrow {
+    margin-top: 0;
+  }
+  .auth-note {
+    display: none;
+  }
+  .auth-page::before {
+    width: 480px;
+    height: 480px;
+    right: -260px;
+    top: -200px;
+  }
+}
+@media (max-width: 520px) {
+  .auth-page {
+    padding: 0 16px 40px;
+  }
+  .auth-head {
+    height: 68px;
+    margin-bottom: 32px;
+  }
+  .auth-card {
+    padding: 26px 22px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-button:hover {
+    transform: none;
+  }
+}
