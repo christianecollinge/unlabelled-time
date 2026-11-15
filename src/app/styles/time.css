@@ -510,3 +510,30 @@ kbd { padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width:
   .target { width: 100%; }
   .week-panel .panel-head { flex-wrap: wrap; }
 }
+
+/* ── export, and the printed report ──────────────────────────────────────── */
+.export-panel { margin-bottom: 28px; }
+.export-controls { display: flex; flex-wrap: wrap; gap: 12px; }
+.export-controls label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
+.export-controls select, .export-controls input { padding: 7px 8px; border: 1px solid var(--line-strong); background: var(--card); font-size: 13px; color: var(--ink); }
+.export-sum { margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+.export-sum b { color: var(--ink); }
+.export-hint { font-size: 12px; color: var(--faint); }
+.report { display: none; }
+@media print {
+  @page { margin: 16mm; }
+  body { background: #fff; color: #000; }
+  .top, .switcher-backdrop, .page > :not(.report) { display: none !important; }
+  .page { padding: 0; max-width: none; }
+  .report { display: block; font: 11pt/1.4 var(--sans); }
+  .report h1 { margin: 0 0 4px; font-family: var(--display); font-weight: 400; font-size: 26pt; text-transform: uppercase; }
+  .report h2 { margin: 22px 0 6px; font-size: 12pt; }
+  .report p { margin: 0 0 16px; }
+  .report table { width: 100%; border-collapse: collapse; }
+  .report th { text-align: left; font-weight: 600; border-bottom: 1px solid #000; padding: 4px 6px; }
+  .report td { border-bottom: 1px solid #ccc; padding: 4px 6px; vertical-align: top; }
+  .report .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .report-project td { font-weight: 600; }
+  .report-task td:first-child { padding-left: 22px; }
+  .report tr { break-inside: avoid; }
+}

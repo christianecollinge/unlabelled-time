@@ -8,6 +8,7 @@ What the first version does:
 - A timer: press play on a project to start it, stop it from the project or the card at the top. One timer at a time: starting another stops the first. The timer lives on the server, so it keeps running with the page closed and shows on every device.
 - Tasks inside projects: name a task on the running timer or on any entry (an existing one, or a new name that makes it). Clicking a project shows its tasks with their totals; click a task to see only its time, or ✎ to rename or delete it (its time stays on the project).
 - A note on what you are working on, while the timer runs or afterwards.
+- Export (the button on the Time panel): this week, last week, this month, last month or any dates, for every project or one; a CSV for spreadsheets (date, start, end, decimal hours, duration, project, task, note), or a printed report with totals by project and task, which the browser saves as a PDF. Entries that cross the period's ends are cut there.
 - The week at a glance: hours per day stacked by project against a daily target (6 hours by default, set per browser), today's and the week's progress, and a table of each project's time per day. Earlier weeks are a click away.
 - Time entries grouped by day, newest first, with each day's total; change any entry's project, start, end or note, or delete it; add time after the fact.
 - Totals for today, this week and all time, and per project (all time and today). Clicking a project shows only its time.

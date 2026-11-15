@@ -20,6 +20,7 @@ import {
 } from "./away";
 import { QuickSwitcher, useSwitcherKey } from "./switcher";
 import { WeekView } from "./week";
+import { ExportPanel } from "./export";
 
 const PAUSED_KEY = "time.paused";
 const INTRODUCED_KEY = "time.away.introduced";
@@ -81,6 +82,7 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
   const [paused, setPausedState] = useState<PausedInfo | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   // Whether the person has seen (or waved off) the note about pausing when away.
   const [introduced, setIntroduced] = useState(true);
   const now = useNow(current);
@@ -268,6 +270,10 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
           />
         ) : null}
 
+        {showExport ? (
+          <ExportPanel state={state} projects={projects} byId={byId} taskById={taskById} now={now} onClose={() => setShowExport(false)} />
+        ) : null}
+
         <RunningCard
           key={running?.id ?? "idle"}
           running={running}
@@ -391,6 +397,10 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
             byId={byId}
             tasks={tasks}
             taskById={taskById}
+            onExport={() => {
+              setShowExport(true);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
             filter={filter}
             onClearFilter={() => setFilter(null)}
             now={now}
@@ -722,6 +732,7 @@ function Entries(props: {
   byId: Map<string, Project>;
   tasks: Task[];
   taskById: Map<string, Task>;
+  onExport: () => void;
   filter: string | null;
   onClearFilter: () => void;
   now: number;
@@ -760,6 +771,11 @@ function Entries(props: {
           </button>
         ) : null}
         <span className="spacer" />
+        {props.entries.length > 0 ? (
+          <button type="button" className="quiet" onClick={props.onExport}>
+            Export
+          </button>
+        ) : null}
         {choosable.length > 0 && !adding ? (
           <button type="button" className="quiet" onClick={() => setAdding(true)}>
             + Add time

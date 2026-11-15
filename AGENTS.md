@@ -8,7 +8,7 @@ The fourth Unlabelled tool, a time tracker modelled on Tyme, for **https://time.
 - Not yet on the homepage (`unlabelled-website`, `src/config/products.ts`) or in the sign-in theme's list of tools; that comes after the owner has seen the first version.
 - Pause when away and quick pause/resume added (15 November 2026): idle detection, lock and sleep stop the timer at the moment the person left; installable app with a "Pause or resume" Dock shortcut and badge; `POST /api/timer/resume` and `/api/timer/toggle`. The away settings live in the browser's local storage, so nothing new is stored on the server.
 - Tasks inside projects added (migration 2: `tasks`, `time_entries.task_id`). Task names are new stored data: **the privacy policy on unlabelled.cc needs a line about them.**
-- Ideas from Tyme not built: project groups (In Process, Invoiced, On Hold), statistics (hours per month, workload calendar, target hours), billable rates and revenue, export, absences.
+- Ideas from Tyme not built: project groups (In Process, Invoiced, On Hold), statistics beyond the week view (hours per month, workload calendar), billable rates and revenue, absences.
 
 ## Working in this project
 
