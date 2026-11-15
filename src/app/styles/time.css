@@ -205,6 +205,7 @@ button:disabled { cursor: default; opacity: .55; }
   font-weight: 500;
 }
 .stop-square { width: 10px; height: 10px; background: currentColor; display: inline-block; }
+.pause-bars { width: 10px; height: 11px; border-left: 3.5px solid currentColor; border-right: 3.5px solid currentColor; display: inline-block; }
 
 /* ── totals, as Tyme's statistics ────────────────────────────────────────── */
 .stats {
@@ -383,4 +384,38 @@ button:disabled { cursor: default; opacity: .55; }
 @media (prefers-reduced-motion: reduce) {
   .pulse { animation: none; }
   .play:hover:not(:disabled) { transform: none; }
+}
+
+/* ── pausing when away, and the settings for it ──────────────────────────── */
+.now.paused { border-left: 8px solid var(--c); border-style: solid dashed dashed solid; background: transparent; box-shadow: none; }
+.now.paused .now-clock { gap: 10px; }
+.now.paused .stop { background: var(--c); color: #fff; }
+.now.paused .play-triangle, .resume .play-triangle { border-left-width: 9px; border-top-width: 6px; border-bottom-width: 6px; margin: 0; }
+.paused-note { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+.paused-help { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.resume { display: inline-flex; align-items: center; gap: 9px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.resume .play-triangle { color: var(--c); }
+.hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: baseline;
+  margin: -12px 0 24px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  background: var(--wash);
+  font-size: 13px;
+}
+.settings { margin-bottom: 28px; }
+.setting-line { display: flex; gap: 10px; align-items: baseline; font-size: 14px; line-height: 1.9; }
+.setting-line input[type="checkbox"] { accent-color: var(--accent); transform: translateY(1px); }
+.minutes { width: 4.2em; padding: 2px 6px; border: 1px solid var(--line-strong); background: var(--card); font-size: 14px; }
+.setting-note { margin: 8px 0 14px 24px; color: var(--muted); font-size: 13px; max-width: 720px; }
+.settings-sub { margin: 24px 0 8px; font-size: 11px; font-weight: 500; letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted); }
+.setting-tips { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; max-width: 760px; }
+kbd { padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 3px; font: 12px var(--sans); }
+.top .quiet { padding: 5px 10px; font-size: 12px; }
+@media (max-width: 620px) {
+  .hint { margin-top: -6px; }
+  .setting-note { margin-left: 0; }
 }

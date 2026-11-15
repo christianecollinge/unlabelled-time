@@ -4,13 +4,16 @@
  *
  * Open on purpose: /auth/* (the sign-in round trip and its two small pages),
  * and /api/health and /api/ready (Cloud Run asks them whether the service is
- * up). The privacy policy and terms are on the Unlabelled website; /privacy and
+ * up), and /manifest.webmanifest and /sw.js (they make the app installable).
+ * The privacy policy and terms are on the Unlabelled website; /privacy and
  * /terms redirect there.
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, authConfig, isProduction, originOf, readSession } from "@/lib/auth";
 
-const open = new Set(["/api/health", "/api/ready", "/privacy", "/terms"]);
+// The app manifest and service worker hold no data; the browser fetches the manifest without
+// the session cookie, so it must be reachable signed out for the app to be installable.
+const open = new Set(["/api/health", "/api/ready", "/privacy", "/terms", "/manifest.webmanifest", "/sw.js"]);
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

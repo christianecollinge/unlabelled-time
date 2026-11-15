@@ -143,14 +143,65 @@ export async function deleteProject(db: Queryable, workspaceId: string, projectI
   await db.query("DELETE FROM projects WHERE workspace_id = $1 AND id = $2", [workspaceId, id]);
 }
 
-/** Stops whatever runs (on `projectId` only, when given). Returns whether something was stopped. */
-export async function stopTimer(db: Queryable, workspaceId: string, projectId?: string): Promise<boolean> {
+/**
+ * Stops whatever runs (on `projectId` only, when given). Returns whether something was stopped.
+ * `at` ends it earlier than now, for time the person was away; it is kept between the entry's
+ * start and now.
+ */
+export async function stopTimer(db: Queryable, workspaceId: string, projectId?: string, at?: Date): Promise<boolean> {
   const rows = await db.query(
-    `UPDATE time_entries SET ended_at = GREATEST(now(), started_at), updated_at = now()
+    `UPDATE time_entries SET ended_at = GREATEST(LEAST(COALESCE($3::timestamptz, now()), now()), started_at), updated_at = now()
       WHERE workspace_id = $1 AND ended_at IS NULL AND ($2::uuid IS NULL OR project_id = $2) RETURNING id`,
-    [workspaceId, projectId ?? null],
+    [workspaceId, projectId ?? null, at ?? null],
   );
   return rows.length > 0;
+}
+
+/** The end the page asked for when it stopped the timer: none (now), or a time the person was last there. */
+export function stopTime(value: unknown): Date | undefined {
+  return value === undefined || value === null ? undefined : cleanTime(value, "The pause");
+}
+
+/**
+ * Picks up where the person left off: the timer starts again on the project and note
+ * of their last entry (or of `entryId`). With `keepAwayTime`, that entry is opened
+ * again instead, so the time in between counts too; only the very last entry can be.
+ * Does nothing while something runs.
+ */
+export async function resumeTimer(
+  db: Queryable,
+  workspaceId: string,
+  input: { entryId?: unknown; keepAwayTime?: unknown } = {},
+): Promise<string> {
+  const [running] = await db.query<{ id: string }>("SELECT id FROM time_entries WHERE workspace_id = $1 AND ended_at IS NULL", [workspaceId]);
+  if (running) return running.id;
+  const [last] = await db.query<EntryRow>(
+    `SELECT id, project_id, started_at, ended_at, note FROM time_entries
+      WHERE workspace_id = $1 ORDER BY ended_at DESC, started_at DESC LIMIT 1`,
+    [workspaceId],
+  );
+  let entry = last;
+  if (input.entryId !== undefined) {
+    if (typeof input.entryId !== "string" || !/^[0-9a-f-]{36}$/i.test(input.entryId)) throw new Refused("That entry no longer exists.");
+    [entry] = await db.query<EntryRow>("SELECT id, project_id, started_at, ended_at, note FROM time_entries WHERE workspace_id = $1 AND id = $2", [
+      workspaceId,
+      input.entryId,
+    ]);
+  }
+  if (!entry) throw new Refused(input.entryId === undefined ? "There is nothing to resume yet. Press play on a project." : "That entry no longer exists.");
+  if (input.keepAwayTime) {
+    if (entry.id !== last.id) throw new Refused("Other time was recorded since, so the time away cannot be added. Resume instead.");
+    const [project] = await db.query<{ archived_at: Date | null }>("SELECT archived_at FROM projects WHERE id = $1", [entry.project_id]);
+    if (project?.archived_at) throw new Refused("That project is archived. Bring it back first.");
+    await db.query("UPDATE time_entries SET ended_at = NULL, updated_at = now() WHERE workspace_id = $1 AND id = $2", [workspaceId, entry.id]);
+    return entry.id;
+  }
+  return startTimer(db, workspaceId, { projectId: entry.project_id, note: entry.note });
+}
+
+/** Pauses what runs, or resumes the last thing when nothing does: the one-button control. */
+export async function toggleTimer(db: Queryable, workspaceId: string): Promise<void> {
+  if (!(await stopTimer(db, workspaceId))) await resumeTimer(db, workspaceId);
 }
 
 /** Starts the timer on a project, stopping the one that runs first: one timer at a time. */
