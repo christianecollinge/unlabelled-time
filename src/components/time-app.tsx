@@ -234,7 +234,7 @@ function Header({ viewer }: { viewer: ViewerInfo | null }) {
               {viewer.name || viewer.email}
             </span>
             <a className="quiet" href="/auth/logout">
-              Sign out
+              Sign out of Time
             </a>
           </>
         ) : (
