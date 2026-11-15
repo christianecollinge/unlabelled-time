@@ -419,3 +419,30 @@ kbd { padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width:
   .hint { margin-top: -6px; }
   .setting-note { margin-left: 0; }
 }
+
+/* ── the quick switcher ──────────────────────────────────────────────────── */
+.switcher-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 16px 16px;
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
+}
+.switcher { width: 100%; max-width: 560px; background: var(--card); border: 1px solid var(--line-strong); box-shadow: var(--shadow); }
+.switcher-input { width: 100%; padding: 18px 20px; border: 0; border-bottom: 1px solid var(--line); background: transparent; font-size: 17px; color: var(--ink); }
+.switcher-input:focus { outline: none; }
+.switcher-list { list-style: none; margin: 0; padding: 6px; max-height: 50vh; overflow-y: auto; }
+.switcher-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-size: 15px; cursor: pointer; }
+.switcher-item.is-chosen { background: var(--c-soft, var(--wash)); }
+.switcher-item small { color: var(--muted); font-size: 12px; }
+.switcher-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.switcher-note { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.switcher-empty { padding: 12px; color: var(--muted); font-size: 13px; }
+.switcher-help { margin: 0; padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.switch-button kbd { margin-left: 4px; font-size: 11px; }
+@media (max-width: 620px) {
+  .switch-button kbd { display: none; }
+}

@@ -410,7 +410,7 @@ export function AwaySettingsPanel(props: {
           )}
         </li>
         <li>
-          Press <kbd>P</kbd> on this page to pause or resume.
+          Press <kbd>P</kbd> on this page to pause or resume, and <kbd>⌘K</kbd> or <kbd>/</kbd> to start a project by typing its name.
         </li>
         <li>The notification that says the timer paused has a <b>Resume</b> button.</li>
       </ul>

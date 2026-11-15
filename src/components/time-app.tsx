@@ -18,6 +18,7 @@ import {
   useNothingRunningReminder,
   usePauseKey,
 } from "./away";
+import { QuickSwitcher, useSwitcherKey } from "./switcher";
 
 const PAUSED_KEY = "time.paused";
 const INTRODUCED_KEY = "time.away.introduced";
@@ -78,6 +79,7 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
   const [showArchived, setShowArchived] = useState(false);
   const [paused, setPausedState] = useState<PausedInfo | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showSwitcher, setShowSwitcher] = useState(false);
   // Whether the person has seen (or waved off) the note about pausing when away.
   const [introduced, setIntroduced] = useState(true);
   const now = useNow(current);
@@ -108,9 +110,17 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
     } else {
       load();
     }
+    // Opened from the app icon's "Start a project…" (?do=switch).
+    // The address is tidied only once it has been acted on, so a second run of this effect
+    // (React runs it twice in development) still sees it.
+    const openSwitcher = url.searchParams.get("do") === "switch";
     const first = window.setTimeout(() => {
       setPausedState(readPaused(stored(PAUSED_KEY)));
       setIntroduced(stored(INTRODUCED_KEY) !== null);
+      if (openSwitcher) {
+        window.history.replaceState(null, "", "/");
+        setShowSwitcher(true);
+      }
     }, 0);
     const again = () => {
       if (document.visibilityState === "visible") load();
@@ -197,6 +207,8 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
     if (!busy) act("POST", "/api/timer/toggle");
   }, [busy, act]);
   usePauseKey(toggle);
+  const openSwitcher = useCallback(() => setShowSwitcher(true), []);
+  useSwitcherKey(openSwitcher);
 
   const totals = useMemo(() => {
     const entries = state?.entries ?? [];
@@ -225,7 +237,18 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
 
   return (
     <div className="app">
-      <Header viewer={viewer} away={away.settings} onSettings={() => setShowSettings(!showSettings)} settingsOpen={showSettings} />
+      <Header viewer={viewer} away={away.settings} onSettings={() => setShowSettings(!showSettings)} settingsOpen={showSettings} onSwitch={active.length ? openSwitcher : undefined} />
+      {showSwitcher && active.length ? (
+        <QuickSwitcher
+          projects={active}
+          runningProjectId={running?.projectId ?? null}
+          busy={busy}
+          onStart={(projectId, note) => act("POST", "/api/timer", { projectId, note })}
+          onPause={() => act("DELETE", "/api/timer")}
+          onNote={(note) => running && act("PATCH", `/api/entries/${running.id}`, { note })}
+          onClose={() => setShowSwitcher(false)}
+        />
+      ) : null}
       <main className="page">
         {showSettings && away.settings ? (
           <AwaySettingsPanel
@@ -368,7 +391,7 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
   );
 }
 
-function Header(props: { viewer: ViewerInfo | null; away?: AwaySettings | null; onSettings?: () => void; settingsOpen?: boolean }) {
+function Header(props: { viewer: ViewerInfo | null; away?: AwaySettings | null; onSettings?: () => void; settingsOpen?: boolean; onSwitch?: () => void }) {
   const { viewer, away } = props;
   return (
     <header className="top">
@@ -376,6 +399,11 @@ function Header(props: { viewer: ViewerInfo | null; away?: AwaySettings | null; 
         <Wordmark />
       </Link>
       <div className="who">
+        {props.onSwitch ? (
+          <button type="button" className="quiet switch-button" onClick={props.onSwitch} title="Start a project by typing its name (⌘K or /)">
+            Start… <kbd>⌘K</kbd>
+          </button>
+        ) : null}
         {props.onSettings && away ? (
           <button type="button" className="quiet" onClick={props.onSettings} aria-expanded={props.settingsOpen} title="When you step away, and quick pause">
             {away.enabled ? `Auto-pause: ${away.minutes} min` : "Auto-pause: off"}

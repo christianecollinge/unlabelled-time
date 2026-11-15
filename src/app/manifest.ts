@@ -24,6 +24,13 @@ export default function manifest(): MetadataRoute.Manifest {
         url: "/?do=toggle",
         icons: [{ src: "/app-icon-192.png", sizes: "192x192", type: "image/png" }],
       },
+      {
+        name: "Start a project…",
+        short_name: "Start…",
+        description: "Type a few letters of a project and start its timer",
+        url: "/?do=switch",
+        icons: [{ src: "/app-icon-192.png", sizes: "192x192", type: "image/png" }],
+      },
     ],
   };
 }
