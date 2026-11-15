@@ -6,6 +6,7 @@ What the first version does:
 
 - Projects, each with a colour; rename, recolour, archive, bring back, delete.
 - A timer: press play on a project to start it, stop it from the project or the card at the top. One timer at a time: starting another stops the first. The timer lives on the server, so it keeps running with the page closed and shows on every device.
+- Tasks inside projects: name a task on the running timer or on any entry (an existing one, or a new name that makes it). Clicking a project shows its tasks with their totals; click a task to see only its time, or ✎ to rename or delete it (its time stays on the project).
 - A note on what you are working on, while the timer runs or afterwards.
 - Time entries grouped by day, newest first, with each day's total; change any entry's project, start, end or note, or delete it; add time after the fact.
 - Totals for today, this week and all time, and per project (all time and today). Clicking a project shows only its time.

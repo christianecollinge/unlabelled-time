@@ -446,3 +446,17 @@ kbd { padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width:
 @media (max-width: 620px) {
   .switch-button kbd { display: none; }
 }
+
+/* ── tasks ───────────────────────────────────────────────────────────────── */
+.task-input { margin-top: 10px; max-width: 320px; font-weight: 500; }
+.task-input + datalist + .note-input { margin-top: 4px; }
+.task-line { margin: 8px 0 0; font-weight: 500; }
+.entry-task { font-weight: 400; color: var(--muted); }
+.switcher-task { color: var(--muted); }
+.task-strip { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 6px; }
+.task-chip { display: inline-flex; align-items: stretch; border: 1px solid var(--line-strong); background: var(--card); font-size: 12px; }
+.task-chip.is-on { border-color: var(--accent); background: var(--wash); }
+.task-chip-name { border: 0; background: none; padding: 5px 8px; color: var(--ink); }
+.task-chip-name b { margin-left: 4px; font-variant-numeric: tabular-nums; }
+.task-chip-edit { border: 0; border-left: 1px solid var(--line); background: none; padding: 0 7px; color: var(--faint); }
+.task-chip-edit:hover:not(:disabled) { color: var(--ink); }

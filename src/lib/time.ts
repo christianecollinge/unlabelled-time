@@ -1,7 +1,7 @@
 // Projects and the time spent on them. Every function acts within one
 // workspace and is given its id: nothing here can reach another workspace's rows.
 import type { Queryable } from "./db.ts";
-import { projectColors, type Entry, type Project, type ProjectColor, type Snapshot } from "./types.ts";
+import { projectColors, type Entry, type Project, type ProjectColor, type Snapshot, type Task } from "./types.ts";
 
 /** Something the person asked for that cannot be done; its message is shown to them. */
 export class Refused extends Error {}
@@ -23,6 +23,7 @@ interface ProjectRow {
 interface EntryRow {
   id: string;
   project_id: string;
+  task_id: string | null;
   started_at: Date;
   ended_at: Date | null;
   note: string;
@@ -33,6 +34,7 @@ const iso = (value: Date | string | null): string | null => (value === null ? nu
 const toEntry = (row: EntryRow): Entry => ({
   id: row.id,
   projectId: row.project_id,
+  taskId: row.task_id,
   startedAt: iso(row.started_at)!,
   endedAt: iso(row.ended_at),
   note: row.note,
@@ -63,14 +65,30 @@ export async function snapshot(db: Queryable, workspaceId: string): Promise<Snap
       ORDER BY p.archived_at NULLS FIRST, last_worked_at DESC NULLS LAST, p.created_at DESC`,
     [workspaceId],
   );
+  const tasks = await db.query<{ id: string; project_id: string; name: string; total_seconds: number | string }>(
+    `SELECT t.id, t.project_id, t.name,
+            COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(e.ended_at, now()) - e.started_at))), 0) AS total_seconds
+       FROM tasks t
+       LEFT JOIN time_entries e ON e.task_id = t.id AND e.workspace_id = t.workspace_id
+      WHERE t.workspace_id = $1
+      GROUP BY t.id
+      ORDER BY lower(t.name)`,
+    [workspaceId],
+  );
   const entries = await db.query<EntryRow>(
-    `SELECT id, project_id, started_at, ended_at, note FROM time_entries
+    `SELECT id, project_id, task_id, started_at, ended_at, note FROM time_entries
       WHERE workspace_id = $1 ORDER BY started_at DESC, created_at DESC LIMIT $2`,
     [workspaceId, RECENT_ENTRIES],
   );
   const [{ now }] = await db.query<{ now: Date }>("SELECT now() AS now");
   const all = entries.map(toEntry);
-  return { projects: projects.map(toProject), running: all.find((e) => e.endedAt === null) ?? null, entries: all, now: iso(now)! };
+  const toTask = (row: (typeof tasks)[number]): Task => ({
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    totalSeconds: Math.round(Number(row.total_seconds ?? 0)),
+  });
+  return { projects: projects.map(toProject), tasks: tasks.map(toTask), running: all.find((e) => e.endedAt === null) ?? null, entries: all, now: iso(now)! };
 }
 
 function cleanName(value: unknown): string {
@@ -99,6 +117,57 @@ async function ownProject(db: Queryable, workspaceId: string, projectId: unknown
   const [row] = await db.query<{ id: string }>("SELECT id FROM projects WHERE workspace_id = $1 AND id = $2", [workspaceId, projectId]);
   if (!row) throw new Refused("That project no longer exists.");
   return row.id;
+}
+
+/**
+ * The task an entry is put on, from what the page sent: undefined leaves it as it is, an
+ * empty name or null means none, a name finds the project's task of that name (whatever
+ * the capitals) or makes it, and `{ id }` must be one of the project's tasks.
+ */
+async function taskFor(db: Queryable, workspaceId: string, projectId: string, value: unknown): Promise<string | null | undefined> {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "object" && typeof (value as { id?: unknown }).id === "string") {
+    const id = (value as { id: string }).id;
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Refused("That task no longer exists.");
+    const [row] = await db.query<{ id: string }>("SELECT id FROM tasks WHERE workspace_id = $1 AND project_id = $2 AND id = $3", [workspaceId, projectId, id]);
+    if (!row) throw new Refused("That task is not part of this project.");
+    return row.id;
+  }
+  if (typeof value !== "string") throw new Refused("A task's name must be text.");
+  const name = value.trim().replace(/\s+/g, " ");
+  if (!name) return null;
+  if (name.length > MAX_NAME) throw new Refused(`A task's name can be at most ${MAX_NAME} characters.`);
+  const [found] = await db.query<{ id: string }>("SELECT id FROM tasks WHERE workspace_id = $1 AND project_id = $2 AND lower(name) = lower($3)", [
+    workspaceId,
+    projectId,
+    name,
+  ]);
+  if (found) return found.id;
+  const [made] = await db.query<{ id: string }>("INSERT INTO tasks (workspace_id, project_id, name) VALUES ($1, $2, $3) RETURNING id", [
+    workspaceId,
+    projectId,
+    name,
+  ]);
+  return made.id;
+}
+
+/** Renames a task; a name another task of the project has already is refused. */
+export async function renameTask(db: Queryable, workspaceId: string, taskId: string, input: { name?: unknown }): Promise<void> {
+  const name = typeof input.name === "string" ? input.name.trim().replace(/\s+/g, " ") : "";
+  if (!name) throw new Refused("A task needs a name.");
+  if (name.length > MAX_NAME) throw new Refused(`A task's name can be at most ${MAX_NAME} characters.`);
+  const [task] = await db.query<{ project_id: string }>("SELECT project_id FROM tasks WHERE workspace_id = $1 AND id = $2", [workspaceId, taskId]);
+  if (!task) throw new Refused("That task no longer exists.");
+  const [clash] = await db.query("SELECT 1 FROM tasks WHERE project_id = $1 AND lower(name) = lower($2) AND id <> $3", [task.project_id, name, taskId]);
+  if (clash) throw new Refused("This project already has a task of that name.");
+  await db.query("UPDATE tasks SET name = $3 WHERE workspace_id = $1 AND id = $2", [workspaceId, taskId, name]);
+}
+
+/** Removes a task; its time stays on the project, without a task. */
+export async function deleteTask(db: Queryable, workspaceId: string, taskId: string): Promise<void> {
+  const rows = await db.query("DELETE FROM tasks WHERE workspace_id = $1 AND id = $2 RETURNING id", [workspaceId, taskId]);
+  if (rows.length === 0) throw new Refused("That task no longer exists.");
 }
 
 export async function createProject(db: Queryable, workspaceId: string, input: { name?: unknown; color?: unknown }): Promise<string> {
@@ -176,14 +245,14 @@ export async function resumeTimer(
   const [running] = await db.query<{ id: string }>("SELECT id FROM time_entries WHERE workspace_id = $1 AND ended_at IS NULL", [workspaceId]);
   if (running) return running.id;
   const [last] = await db.query<EntryRow>(
-    `SELECT id, project_id, started_at, ended_at, note FROM time_entries
+    `SELECT id, project_id, task_id, started_at, ended_at, note FROM time_entries
       WHERE workspace_id = $1 ORDER BY ended_at DESC, started_at DESC LIMIT 1`,
     [workspaceId],
   );
   let entry = last;
   if (input.entryId !== undefined) {
     if (typeof input.entryId !== "string" || !/^[0-9a-f-]{36}$/i.test(input.entryId)) throw new Refused("That entry no longer exists.");
-    [entry] = await db.query<EntryRow>("SELECT id, project_id, started_at, ended_at, note FROM time_entries WHERE workspace_id = $1 AND id = $2", [
+    [entry] = await db.query<EntryRow>("SELECT id, project_id, task_id, started_at, ended_at, note FROM time_entries WHERE workspace_id = $1 AND id = $2", [
       workspaceId,
       input.entryId,
     ]);
@@ -196,7 +265,7 @@ export async function resumeTimer(
     await db.query("UPDATE time_entries SET ended_at = NULL, updated_at = now() WHERE workspace_id = $1 AND id = $2", [workspaceId, entry.id]);
     return entry.id;
   }
-  return startTimer(db, workspaceId, { projectId: entry.project_id, note: entry.note });
+  return startTimer(db, workspaceId, { projectId: entry.project_id, note: entry.note, task: entry.task_id ? { id: entry.task_id } : null });
 }
 
 /** Pauses what runs, or resumes the last thing when nothing does: the one-button control. */
@@ -205,14 +274,16 @@ export async function toggleTimer(db: Queryable, workspaceId: string): Promise<v
 }
 
 /** Starts the timer on a project, stopping the one that runs first: one timer at a time. */
-export async function startTimer(db: Queryable, workspaceId: string, input: { projectId?: unknown; note?: unknown }): Promise<string> {
+export async function startTimer(db: Queryable, workspaceId: string, input: { projectId?: unknown; note?: unknown; task?: unknown }): Promise<string> {
   const id = await ownProject(db, workspaceId, input.projectId);
   const [project] = await db.query<{ archived_at: Date | null }>("SELECT archived_at FROM projects WHERE id = $1", [id]);
   if (project.archived_at) throw new Refused("That project is archived. Bring it back first.");
+  const note = cleanNote(input.note);
+  const task = (await taskFor(db, workspaceId, id, input.task)) ?? null;
   await stopTimer(db, workspaceId);
   const [row] = await db.query<{ id: string }>(
-    "INSERT INTO time_entries (workspace_id, project_id, started_at, note) VALUES ($1, $2, now(), $3) RETURNING id",
-    [workspaceId, id, cleanNote(input.note)],
+    "INSERT INTO time_entries (workspace_id, project_id, task_id, started_at, note) VALUES ($1, $2, $3, now(), $4) RETURNING id",
+    [workspaceId, id, task, note],
   );
   return row.id;
 }
@@ -221,15 +292,17 @@ export async function startTimer(db: Queryable, workspaceId: string, input: { pr
 export async function addEntry(
   db: Queryable,
   workspaceId: string,
-  input: { projectId?: unknown; startedAt?: unknown; endedAt?: unknown; note?: unknown },
+  input: { projectId?: unknown; task?: unknown; startedAt?: unknown; endedAt?: unknown; note?: unknown },
 ): Promise<string> {
   const id = await ownProject(db, workspaceId, input.projectId);
   const started = cleanTime(input.startedAt, "The start");
   const ended = cleanTime(input.endedAt, "The end");
   if (ended < started) throw new Refused("The end is before the start.");
+  const note = cleanNote(input.note);
+  const task = (await taskFor(db, workspaceId, id, input.task)) ?? null;
   const [row] = await db.query<{ id: string }>(
-    "INSERT INTO time_entries (workspace_id, project_id, started_at, ended_at, note) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-    [workspaceId, id, started, ended, cleanNote(input.note)],
+    "INSERT INTO time_entries (workspace_id, project_id, task_id, started_at, ended_at, note) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    [workspaceId, id, task, started, ended, note],
   );
   return row.id;
 }
@@ -239,9 +312,9 @@ export async function updateEntry(
   db: Queryable,
   workspaceId: string,
   entryId: string,
-  input: { projectId?: unknown; startedAt?: unknown; endedAt?: unknown; note?: unknown },
+  input: { projectId?: unknown; task?: unknown; startedAt?: unknown; endedAt?: unknown; note?: unknown },
 ): Promise<void> {
-  const [entry] = await db.query<EntryRow>("SELECT id, project_id, started_at, ended_at, note FROM time_entries WHERE workspace_id = $1 AND id = $2", [
+  const [entry] = await db.query<EntryRow>("SELECT id, project_id, task_id, started_at, ended_at, note FROM time_entries WHERE workspace_id = $1 AND id = $2", [
     workspaceId,
     entryId,
   ]);
@@ -252,10 +325,13 @@ export async function updateEntry(
   if (ended && ended < started) throw new Refused("The end is before the start.");
   if (!ended && started.getTime() > Date.now() + 60_000) throw new Refused("A running timer cannot start in the future.");
   const note = input.note === undefined ? entry.note : cleanNote(input.note);
+  // Moved to another project without a task given: the old project's task cannot come along.
+  const given = await taskFor(db, workspaceId, projectId, input.task);
+  const task = given !== undefined ? given : projectId === entry.project_id ? entry.task_id : null;
   await db.query(
-    `UPDATE time_entries SET project_id = $3, started_at = $4, ended_at = $5, note = $6, updated_at = now()
+    `UPDATE time_entries SET project_id = $3, task_id = $7, started_at = $4, ended_at = $5, note = $6, updated_at = now()
       WHERE workspace_id = $1 AND id = $2`,
-    [workspaceId, entry.id, projectId, started, ended, note],
+    [workspaceId, entry.id, projectId, started, ended, note, task],
   );
 }
 

@@ -14,9 +14,20 @@ export interface Project {
   lastWorkedAt: string | null;
 }
 
+/** A part of a project that time can be put on. */
+export interface Task {
+  id: string;
+  projectId: string;
+  name: string;
+  /** Every finished entry on it, plus the running one up to the moment it was read. */
+  totalSeconds: number;
+}
+
 export interface Entry {
   id: string;
   projectId: string;
+  /** Null when the time is on the project as a whole. */
+  taskId: string | null;
   startedAt: string;
   /** Null while the timer runs. */
   endedAt: string | null;
@@ -25,6 +36,8 @@ export interface Entry {
 
 export interface Snapshot {
   projects: Project[];
+  /** The tasks of every project, by name. */
+  tasks: Task[];
   /** The running entry, if any. It is also in `entries`. */
   running: Entry | null;
   /** The most recent entries, newest first. */
