@@ -3,17 +3,34 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { openLocal, type Db } from "../src/lib/db.ts";
 import { migrate } from "../src/lib/migrations.ts";
-import { addEntry, createProject, deleteEntry, deleteProject, Refused, snapshot, startTimer, stopTimer, updateEntry, updateProject } from "../src/lib/time.ts";
+import {
+  addEntry,
+  createProject,
+  deleteEntry,
+  deleteProject,
+  Refused,
+  resumeTimer,
+  snapshot,
+  startTimer,
+  stopTime,
+  stopTimer,
+  toggleTimer,
+  updateEntry,
+  updateProject,
+} from "../src/lib/time.ts";
 import { provisionUser } from "../src/lib/users.ts";
 
 let db: Db;
 let ana: string;
 let ben: string;
+// A workspace of its own for the resume tests, where "the last entry" is known.
+let cy: string;
 before(async () => {
   db = await openLocal();
   await migrate(db);
   ana = (await provisionUser(db, { sub: "kc-ana", email: "ana@example.com", name: "Ana" })).workspaceId;
   ben = (await provisionUser(db, { sub: "kc-ben", email: "ben@example.com", name: "Ben" })).workspaceId;
+  cy = (await provisionUser(db, { sub: "kc-cy", email: "cy@example.com", name: "Cy" })).workspaceId;
 });
 after(() => db.close());
 
@@ -121,4 +138,63 @@ test("nobody reaches another workspace's projects or time", async () => {
   assert.equal(benState.entries.length, 0);
   // And the database itself refuses an entry that joins two workspaces.
   await assert.rejects(db.query("INSERT INTO time_entries (workspace_id, project_id, started_at, ended_at) VALUES ($1, $2, now(), now())", [ben, mine]));
+});
+
+test("pausing for time away ends the entry when the person was last there", async () => {
+  const p = await createProject(db, ana, { name: "Away" });
+  const id = await startTimer(db, ana, { projectId: p, note: "drafting" });
+  await updateEntry(db, ana, id, { startedAt: new Date(Date.now() - 2 * hour).toISOString() });
+  assert.equal(await stopTimer(db, ana, undefined, stopTime(new Date(Date.now() - hour).toISOString())), true);
+  const entry = (await snapshot(db, ana)).entries.find((e) => e.id === id)!;
+  assert.ok(Math.abs(Date.parse(entry.endedAt!) - Date.parse(entry.startedAt) - hour) < 5_000);
+  // A pause before the start or in the future is kept within the entry.
+  const again = await startTimer(db, ana, { projectId: p });
+  await stopTimer(db, ana, undefined, new Date(Date.now() - 10 * hour));
+  const short = (await snapshot(db, ana)).entries.find((e) => e.id === again)!;
+  assert.equal(short.endedAt, short.startedAt);
+  await deleteEntry(db, ana, again);
+  assert.throws(() => stopTime("soon"), Refused);
+  assert.equal(stopTime(undefined), undefined);
+});
+
+test("resuming picks up the last project and note, or carries the last entry on", async () => {
+  const p = await createProject(db, cy, { name: "Resume" });
+  const first = await startTimer(db, cy, { projectId: p, note: "editing" });
+  await updateEntry(db, cy, first, { startedAt: new Date(Date.now() - 2 * hour).toISOString() });
+  await stopTimer(db, cy, undefined, new Date(Date.now() - hour));
+  // Resume: a new entry on the same project and note; the hour away is not counted.
+  const second = await resumeTimer(db, cy);
+  let state = await snapshot(db, cy);
+  assert.notEqual(second, first);
+  assert.equal(state.running?.id, second);
+  assert.equal(state.running?.projectId, p);
+  assert.equal(state.running?.note, "editing");
+  // Resuming while something runs changes nothing.
+  assert.equal(await resumeTimer(db, cy), second);
+  await deleteEntry(db, cy, second);
+  // Keeping the time away opens the last entry again, so it runs on from its start.
+  assert.equal(await resumeTimer(db, cy, { entryId: first, keepAwayTime: true }), first);
+  state = await snapshot(db, cy);
+  assert.equal(state.running?.id, first);
+  assert.equal(state.running?.endedAt, null);
+  await stopTimer(db, cy);
+  // Only the very last entry can be carried on.
+  await startTimer(db, cy, { projectId: p });
+  await stopTimer(db, cy);
+  await assert.rejects(resumeTimer(db, cy, { entryId: first, keepAwayTime: true }), /Other time/);
+  // Nobody resumes another workspace's entry, and an empty workspace has nothing to resume.
+  await assert.rejects(resumeTimer(db, ben, { entryId: first }), /no longer exists/);
+  await assert.rejects(resumeTimer(db, ben), /nothing to resume/);
+});
+
+test("the one-button control pauses what runs and resumes the last thing", async () => {
+  const p = await createProject(db, cy, { name: "Toggle" });
+  await startTimer(db, cy, { projectId: p, note: "calls" });
+  await toggleTimer(db, cy);
+  assert.equal((await snapshot(db, cy)).running, null);
+  await toggleTimer(db, cy);
+  const running = (await snapshot(db, cy)).running;
+  assert.equal(running?.projectId, p);
+  assert.equal(running?.note, "calls");
+  await toggleTimer(db, cy);
 });

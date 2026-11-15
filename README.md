@@ -9,6 +9,8 @@ What the first version does:
 - A note on what you are working on, while the timer runs or afterwards.
 - Time entries grouped by day, newest first, with each day's total; change any entry's project, start, end or note, or delete it; add time after the fact.
 - Totals for today, this week and all time, and per project (all time and today). Clicking a project shows only its time.
+- Pausing when you step away: after a set number of minutes without touching the computer (Chrome and Edge, once allowed), when the screen locks, or when the computer sleeps, the timer stops at the moment you left. A notification and the card at the top offer to resume, or to count the time away after all. The setting is kept in the browser (button at the top right).
+- Pause and resume without finding the page: "Resume" on the card, the P key, the notification's Resume button, and, once installed as an app, "Pause or resume" on its Dock or taskbar icon, which shows a dot while the timer runs.
 
 ## Running it locally
 
@@ -29,5 +31,7 @@ The same stack and sign-in as emee: Next.js 16 (standalone output), TypeScript, 
 - `src/lib/auth.ts`, `src/proxy.ts`, `src/app/auth/`: sign-in, copied from emee with this app's own cookie names and role.
 - `src/app/api/`: `GET /api/state`, and changes that each answer with the whole new state (`/api/projects`, `/api/timer`, `/api/entries`).
 - `src/components/time-app.tsx`: the page.
+- `src/components/away.tsx`, `src/lib/away.ts`: noticing that the person is away, the installed app's badge and service worker, the P key.
+- `src/app/manifest.ts`, `public/sw.js`: what makes the app installable. The service worker caches nothing.
 
 Deploying is described in `docs/deployment.md`.

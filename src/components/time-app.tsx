@@ -5,6 +5,11 @@ import { ago, clock, entrySeconds, fromLocalInput, hoursMinutes, secondsWithin, 
 import { projectColors, type Entry, type Project, type ProjectColor, type Snapshot } from "@/lib/types";
 import Link from "next/link";
 import { Wordmark } from "./wordmark";
+import { pausedBecause, readPaused, type AwayReason, type AwaySettings, type PausedInfo } from "@/lib/away";
+import { AwaySettingsPanel, closeNotifications, notify, store, stored, useAppShell, useAwaySettings, useAwayWatch, usePauseKey } from "./away";
+
+const PAUSED_KEY = "time.paused";
+const INTRODUCED_KEY = "time.away.introduced";
 
 export interface ViewerInfo {
   name: string;
@@ -60,22 +65,57 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [paused, setPausedState] = useState<PausedInfo | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  // Whether the person has seen (or waved off) the note about pausing when away.
+  const [introduced, setIntroduced] = useState(true);
   const now = useNow(current);
 
-  // Read when the page opens, and again when it comes back into view: the
-  // timer may have been started or stopped on another device meanwhile.
-  useEffect(() => {
-    const load = () =>
+  const load = useCallback(
+    () =>
       ask("GET", "/api/state").then(
         (snapshot) => setCurrent(loaded(snapshot)),
         (error) => setProblem(error instanceof Error ? error.message : String(error)),
+      ),
+    [],
+  );
+
+  // Read when the page opens, and again when it comes back into view: the
+  // timer may have been started or stopped on another device meanwhile.
+  // Opened from the app icon's "Pause or resume" (?do=toggle), it does that first.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("do") === "toggle") {
+      window.history.replaceState(null, "", "/");
+      ask("POST", "/api/timer/toggle").then(
+        (snapshot) => setCurrent(loaded(snapshot)),
+        (error) => {
+          setProblem(error instanceof Error ? error.message : String(error));
+          load();
+        },
       );
-    load();
+    } else {
+      load();
+    }
+    const first = window.setTimeout(() => {
+      setPausedState(readPaused(stored(PAUSED_KEY)));
+      setIntroduced(stored(INTRODUCED_KEY) !== null);
+    }, 0);
     const again = () => {
       if (document.visibilityState === "visible") load();
     };
     document.addEventListener("visibilitychange", again);
-    return () => document.removeEventListener("visibilitychange", again);
+    return () => {
+      window.clearTimeout(first);
+      document.removeEventListener("visibilitychange", again);
+    };
+  }, [load]);
+
+  /** Remembers (in this browser) that the timer paused itself, so the card can offer to resume. */
+  const setPaused = useCallback((info: PausedInfo | null) => {
+    setPausedState(info);
+    store(PAUSED_KEY, info ? JSON.stringify(info) : null);
+    if (!info) closeNotifications();
   }, []);
 
   const act = useCallback(async (method: string, path: string, body?: object): Promise<boolean> => {
@@ -98,6 +138,43 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
   const archived = projects.filter((p) => p.archived);
   const running = state?.running ?? null;
   const runningProject = running ? byId.get(running.projectId) : undefined;
+  // What "Resume" starts again: the entry that ended last.
+  const last = useMemo(() => {
+    const ended = (state?.entries ?? []).filter((e) => e.endedAt);
+    return ended.reduce<Entry | null>((latest, e) => (!latest || Date.parse(e.endedAt!) > Date.parse(latest.endedAt!) ? e : latest), null);
+  }, [state]);
+  const lastProject = last ? byId.get(last.projectId) : undefined;
+
+  // Once something runs again, the "paused" notification has done its job. (The paused card
+  // only shows while the paused entry is still the last one, so it goes by itself.)
+  useEffect(() => {
+    if (running) closeNotifications();
+  }, [running]);
+
+  const away = useAwaySettings();
+  const pausing = useRef(false);
+  const onAway = useCallback(
+    async (at: number, why: AwayReason) => {
+      if (!running || pausing.current) return;
+      pausing.current = true;
+      // Never before the entry began; on the server's clock.
+      const when = Math.max(at + (current?.skew ?? 0), Date.parse(running.startedAt));
+      const ok = await act("DELETE", "/api/timer", { at: new Date(when).toISOString() });
+      pausing.current = false;
+      if (!ok) return;
+      const info: PausedInfo = { entryId: running.id, projectId: running.projectId, at: new Date(when).toISOString(), why };
+      setPaused(info);
+      const time = new Date(when).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      notify(`Timer paused at ${time}`, `${runningProject?.name ?? "Your timer"} paused because ${pausedBecause(why)}.`, { entryId: running.id });
+    },
+    [running, runningProject, current, act, setPaused],
+  );
+  useAwayWatch({ running: Boolean(running), settings: away.settings, access: away.access, onAway });
+  const shell = useAppShell(Boolean(running), load);
+  const toggle = useCallback(() => {
+    if (!busy) act("POST", "/api/timer/toggle");
+  }, [busy, act]);
+  usePauseKey(toggle);
 
   const totals = useMemo(() => {
     const entries = state?.entries ?? [];
@@ -126,8 +203,22 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
 
   return (
     <div className="app">
-      <Header viewer={viewer} />
+      <Header viewer={viewer} away={away.settings} onSettings={() => setShowSettings(!showSettings)} settingsOpen={showSettings} />
       <main className="page">
+        {showSettings && away.settings ? (
+          <AwaySettingsPanel
+            settings={away.settings}
+            onChange={away.change}
+            access={away.access}
+            notifications={away.notifications}
+            onAllow={away.allow}
+            canInstall={shell.canInstall}
+            installed={shell.installed}
+            onInstall={shell.promptInstall}
+            onClose={() => setShowSettings(false)}
+          />
+        ) : null}
+
         <RunningCard
           key={running?.id ?? "idle"}
           running={running}
@@ -137,7 +228,41 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
           onStop={() => act("DELETE", "/api/timer")}
           onNote={(note) => running && act("PATCH", `/api/entries/${running.id}`, { note })}
           hasProjects={active.length > 0}
+          paused={paused && paused.entryId === last?.id ? paused : null}
+          last={last && lastProject && !lastProject.archived ? { entry: last, project: lastProject } : null}
+          now={now}
+          onResume={(keepAwayTime) =>
+            act("POST", "/api/timer/resume", keepAwayTime && paused ? { entryId: paused.entryId, keepAwayTime: true } : {}).then((ok) => ok && setPaused(null))
+          }
+          onDismissPaused={() => setPaused(null)}
         />
+
+        {away.settings && away.access === "ask" && away.settings.enabled && !showSettings && !introduced ? (
+          <p className="hint">
+            The timer can now pause itself when you step away from the computer, and resume from a notification or the app icon.
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                store(INTRODUCED_KEY, "1");
+                setIntroduced(true);
+                setShowSettings(true);
+              }}
+            >
+              Set it up
+            </button>
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                store(INTRODUCED_KEY, "1");
+                setIntroduced(true);
+              }}
+            >
+              Not now
+            </button>
+          </p>
+        ) : null}
 
         {problem ? (
           <p className="problem" role="alert">
@@ -221,13 +346,19 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
   );
 }
 
-function Header({ viewer }: { viewer: ViewerInfo | null }) {
+function Header(props: { viewer: ViewerInfo | null; away?: AwaySettings | null; onSettings?: () => void; settingsOpen?: boolean }) {
+  const { viewer, away } = props;
   return (
     <header className="top">
       <Link href="/" className="home">
         <Wordmark />
       </Link>
       <div className="who">
+        {props.onSettings && away ? (
+          <button type="button" className="quiet" onClick={props.onSettings} aria-expanded={props.settingsOpen} title="When you step away, and quick pause">
+            {away.enabled ? `Auto-pause: ${away.minutes} min` : "Auto-pause: off"}
+          </button>
+        ) : null}
         {viewer ? (
           <>
             <span className="who-name" title={viewer.email}>
@@ -262,6 +393,13 @@ function RunningCard(props: {
   hasProjects: boolean;
   onStop: () => void;
   onNote: (note: string) => void;
+  /** Set when the timer paused itself because the person was away. */
+  paused: PausedInfo | null;
+  /** What Resume starts again. */
+  last: { entry: Entry; project: Project } | null;
+  now: number;
+  onResume: (keepAwayTime: boolean) => void;
+  onDismissPaused: () => void;
 }) {
   const { running, project } = props;
   // The card is keyed by the running entry, so a new timer starts with its own note.
@@ -272,14 +410,51 @@ function RunningCard(props: {
     document.title = running && project ? `${clock(props.seconds)} · ${project.name}` : "Unlabelled Time";
   }, [running, project, props.seconds]);
 
+  if ((!running || !project) && props.paused && props.last) {
+    const { paused, last } = props;
+    const awayFor = hoursMinutes((props.now - Date.parse(paused.at)) / 1000);
+    return (
+      <section className="now paused" data-color={last.project.color} aria-live="polite">
+        <div className="now-text">
+          <p className="eyebrow">
+            ❚❚&nbsp; Paused at {timeOf(paused.at)} because {pausedBecause(paused.why)}
+          </p>
+          <h1>{last.project.name}</h1>
+          {last.entry.note ? <p className="paused-note">{last.entry.note}</p> : null}
+          <p className="paused-help">The {awayFor} since then is not counted.</p>
+        </div>
+        <div className="now-clock">
+          <button type="button" className="stop" disabled={props.busy} onClick={() => props.onResume(false)}>
+            <span className="play-triangle" aria-hidden="true" /> Resume
+          </button>
+          <button type="button" className="link" disabled={props.busy} onClick={() => props.onResume(true)}>
+            Resume and count the {awayFor} away
+          </button>
+          <button type="button" className="link" onClick={props.onDismissPaused}>
+            Leave it paused
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   if (!running || !project) {
     return (
       <section className="now idle" aria-live="polite">
-        <p className="eyebrow">✳&nbsp; Nothing is running</p>
-        <h1>
-          {props.hasProjects ? "Press play on a project" : "Start with a project"}
-          <span className="dot">.</span>
-        </h1>
+        <div className="now-text">
+          <p className="eyebrow">✳&nbsp; Nothing is running</p>
+          <h1>
+            {props.hasProjects ? "Press play on a project" : "Start with a project"}
+            <span className="dot">.</span>
+          </h1>
+        </div>
+        {props.last ? (
+          <div className="now-clock">
+            <button type="button" className="quiet resume" data-color={props.last.project.color} disabled={props.busy} onClick={() => props.onResume(false)}>
+              <span className="play-triangle" aria-hidden="true" /> Resume {props.last.project.name}
+            </button>
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -306,7 +481,7 @@ function RunningCard(props: {
       <div className="now-clock">
         <span className="clock">{clock(props.seconds)}</span>
         <button type="button" className="stop" disabled={props.busy} onClick={props.onStop}>
-          <span className="stop-square" aria-hidden="true" /> Stop
+          <span className="pause-bars" aria-hidden="true" /> Pause
         </button>
       </div>
     </section>
