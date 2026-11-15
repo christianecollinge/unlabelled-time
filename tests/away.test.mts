@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { awaySince, defaultAwaySettings, readAwaySettings, readPaused, sleptSince } from "../src/lib/away.ts";
+import { awaySince, defaultAwaySettings, readAwaySettings, readPaused, shouldRemind, sleptSince } from "../src/lib/away.ts";
 
 const minute = 60_000;
 const now = Date.parse("2026-11-15T12:00:00Z");
@@ -24,9 +24,9 @@ test("a long gap between the page's steps means the computer slept", () => {
 test("stored settings fall back to the defaults and stay in range", () => {
   assert.deepEqual(readAwaySettings(null), defaultAwaySettings);
   assert.deepEqual(readAwaySettings("not json"), defaultAwaySettings);
-  assert.deepEqual(readAwaySettings('{"enabled":false,"minutes":5}'), { enabled: false, minutes: 5 });
-  assert.deepEqual(readAwaySettings('{"minutes":0}'), { enabled: true, minutes: 1 });
-  assert.deepEqual(readAwaySettings('{"minutes":9999}'), { enabled: true, minutes: 240 });
+  assert.deepEqual(readAwaySettings('{"enabled":false,"minutes":5}'), { ...defaultAwaySettings, enabled: false, minutes: 5 });
+  assert.deepEqual(readAwaySettings('{"minutes":0}'), { ...defaultAwaySettings, minutes: 1 });
+  assert.deepEqual(readAwaySettings('{"minutes":9999,"remind":false,"remindMinutes":3}'), { enabled: true, minutes: 240, remind: false, remindMinutes: 3 });
 });
 
 test("a paused timer is remembered only when complete", () => {
@@ -38,4 +38,12 @@ test("a paused timer is remembered only when complete", () => {
     at: "2026-11-15T12:00:00Z",
     why: "idle",
   });
+});
+
+test("the reminder comes after a stretch of use with nothing running, and not again straight away", () => {
+  assert.equal(shouldRemind(null, 0, now, 20), false);
+  assert.equal(shouldRemind(now - 19 * minute, 0, now, 20), false);
+  assert.equal(shouldRemind(now - 20 * minute, 0, now, 20), true);
+  assert.equal(shouldRemind(now - 40 * minute, now - 5 * minute, now, 20), false);
+  assert.equal(shouldRemind(now - 40 * minute, now - 20 * minute, now, 20), true);
 });

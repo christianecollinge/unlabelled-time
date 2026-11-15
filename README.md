@@ -10,6 +10,7 @@ What the first version does:
 - Time entries grouped by day, newest first, with each day's total; change any entry's project, start, end or note, or delete it; add time after the fact.
 - Totals for today, this week and all time, and per project (all time and today). Clicking a project shows only its time.
 - Pausing when you step away: after a set number of minutes without touching the computer (Chrome and Edge, once allowed), when the screen locks, or when the computer sleeps, the timer stops at the moment you left. A notification and the card at the top offer to resume, or to count the time away after all. The setting is kept in the browser (button at the top right).
+- A reminder when nothing runs: after a set time of using the computer (20 minutes by default) with no timer running, a notification offers to resume the last project. With idle detection allowed, only time actually at the computer counts; without it, only time with the page in front.
 - Pause and resume without finding the page: "Resume" on the card, the P key, the notification's Resume button, and, once installed as an app, "Pause or resume" on its Dock or taskbar icon, which shows a dot while the timer runs.
 
 ## Running it locally

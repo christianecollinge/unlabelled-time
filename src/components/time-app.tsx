@@ -6,7 +6,18 @@ import { projectColors, type Entry, type Project, type ProjectColor, type Snapsh
 import Link from "next/link";
 import { Wordmark } from "./wordmark";
 import { pausedBecause, readPaused, type AwayReason, type AwaySettings, type PausedInfo } from "@/lib/away";
-import { AwaySettingsPanel, closeNotifications, notify, store, stored, useAppShell, useAwaySettings, useAwayWatch, usePauseKey } from "./away";
+import {
+  AwaySettingsPanel,
+  closeNotifications,
+  notify,
+  store,
+  stored,
+  useAppShell,
+  useAwaySettings,
+  useAwayWatch,
+  useNothingRunningReminder,
+  usePauseKey,
+} from "./away";
 
 const PAUSED_KEY = "time.paused";
 const INTRODUCED_KEY = "time.away.introduced";
@@ -115,7 +126,7 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
   const setPaused = useCallback((info: PausedInfo | null) => {
     setPausedState(info);
     store(PAUSED_KEY, info ? JSON.stringify(info) : null);
-    if (!info) closeNotifications();
+    if (!info) closeNotifications("time-paused");
   }, []);
 
   const act = useCallback(async (method: string, path: string, body?: object): Promise<boolean> => {
@@ -170,6 +181,17 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
     [running, runningProject, current, act, setPaused],
   );
   useAwayWatch({ running: Boolean(running), settings: away.settings, access: away.access, onAway });
+  const onRemind = useCallback(() => {
+    const minutes = away.settings?.remindMinutes ?? 20;
+    const resumable = lastProject && !lastProject.archived ? lastProject : null;
+    notify(
+      "No timer is running",
+      `You have been at the computer for ${minutes} minute${minutes === 1 ? "" : "s"} without recording time.${resumable ? ` Resume ${resumable.name}?` : " Open Unlabelled Time to start one."}`,
+      {},
+      { tag: "time-reminder", resume: Boolean(resumable) },
+    );
+  }, [away.settings, lastProject]);
+  useNothingRunningReminder({ running: Boolean(running), settings: away.settings, access: away.access, onRemind });
   const shell = useAppShell(Boolean(running), load);
   const toggle = useCallback(() => {
     if (!busy) act("POST", "/api/timer/toggle");

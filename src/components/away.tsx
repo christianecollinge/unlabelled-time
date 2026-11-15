@@ -3,7 +3,7 @@
 // the installed app, its Dock menu and badge, the notification and the P key.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { awaySince, clampMinutes, readAwaySettings, sleptSince, type AwayReason, type AwaySettings } from "@/lib/away";
+import { awaySince, clampMinutes, readAwaySettings, shouldRemind, sleptSince, type AwayReason, type AwaySettings } from "@/lib/away";
 
 const SETTINGS_KEY = "time.away";
 
@@ -65,7 +65,7 @@ export function useAwaySettings() {
   }, []);
 
   const change = useCallback((next: AwaySettings) => {
-    const clean = { enabled: next.enabled, minutes: clampMinutes(next.minutes) };
+    const clean = { ...next, minutes: clampMinutes(next.minutes), remindMinutes: clampMinutes(next.remindMinutes) };
     setSettings(clean);
     store(SETTINGS_KEY, JSON.stringify(clean));
   }, []);
@@ -136,34 +136,89 @@ export function useAwayWatch(props: { running: boolean; settings: AwaySettings |
   }, [on, access, minutes]);
 }
 
+/**
+ * Calls `onRemind` when nothing runs and the person has been using the computer for the set
+ * time. "Using" comes from the browser's idle detection when allowed (touched it within the
+ * last minute, screen not locked); without it, only time with this page in front counts.
+ */
+export function useNothingRunningReminder(props: { running: boolean; settings: AwaySettings | null; access: IdleAccess; onRemind: () => void }) {
+  const { running, settings, access, onRemind } = props;
+  const latest = useRef(onRemind);
+  useEffect(() => {
+    latest.current = onRemind;
+  }, [onRemind]);
+
+  const on = Boolean(!running && settings?.remind);
+  const minutes = settings?.remindMinutes ?? 20;
+
+  useEffect(() => {
+    if (!on) return;
+    const Detector = access === "granted" ? idleDetector() : undefined;
+    const controller = new AbortController();
+    let detector: IdleDetectorLike | null = null;
+    const using = () =>
+      detector ? detector.userState === "active" && detector.screenState !== "locked" : document.visibilityState === "visible" && document.hasFocus();
+    // Counting starts now: whatever came before the timer stopped is not "nothing running".
+    let activeSince: number | null = Date.now();
+    let lastReminded = 0;
+    let lastStep = Date.now();
+    const step = () => {
+      const now = Date.now();
+      // Asleep in between: start counting again.
+      if (sleptSince(lastStep, now, 2) !== null || !using()) activeSince = null;
+      else if (activeSince === null) activeSince = now;
+      lastStep = now;
+      if (shouldRemind(activeSince, lastReminded, now, minutes)) {
+        lastReminded = now;
+        latest.current();
+      }
+    };
+    if (Detector) {
+      detector = new Detector();
+      detector.addEventListener("change", step);
+      detector.start({ threshold: 60_000, signal: controller.signal }).catch(() => {
+        detector = null;
+      });
+    }
+    const timer = window.setInterval(step, 30_000);
+    return () => {
+      window.clearInterval(timer);
+      detector?.removeEventListener("change", step);
+      controller.abort();
+    };
+  }, [on, access, minutes]);
+}
+
 /** Shows a notification through the app's service worker, so its Resume button works with the page hidden. */
-export async function notify(title: string, body: string, data: object) {
+export async function notify(title: string, body: string, data: object, options: { tag?: string; resume?: boolean } = {}) {
+  const tag = options.tag ?? "time-paused";
   if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
   try {
     const registration = await navigator.serviceWorker?.getRegistration();
     if (registration) {
       await registration.showNotification(title, {
         body,
-        tag: "time-paused",
+        tag,
         requireInteraction: true,
         icon: "/app-icon-192.png",
         data,
         // Action buttons are not in every TypeScript version's types.
-        ...({ actions: [{ action: "resume", title: "Resume" }] } as object),
+        ...(options.resume === false ? {} : ({ actions: [{ action: "resume", title: "Resume" }] } as object)),
       });
       return;
     }
-    const plain = new Notification(title, { body, tag: "time-paused", icon: "/app-icon-192.png" });
+    const plain = new Notification(title, { body, tag, icon: "/app-icon-192.png" });
     plain.onclick = () => window.focus();
   } catch {
     // A notification is a courtesy; the card on the page says the same.
   }
 }
 
-export function closeNotifications() {
+/** Closes the app's notifications of one kind ("time-paused" or "time-reminder"), or all of them. */
+export function closeNotifications(tag?: string) {
   navigator.serviceWorker
     ?.getRegistration()
-    .then((registration) => registration?.getNotifications({ tag: "time-paused" }))
+    .then((registration) => registration?.getNotifications(tag ? { tag } : undefined))
     .then((open) => open?.forEach((n) => n.close()))
     .catch(() => undefined);
 }
@@ -259,6 +314,7 @@ export function AwaySettingsPanel(props: {
 }) {
   const { settings } = props;
   const [minutes, setMinutes] = useState(String(settings.minutes));
+  const [remindMinutes, setRemindMinutes] = useState(String(settings.remindMinutes));
   const needsAllowing = props.access === "ask" || props.notifications === "default";
   const mac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
@@ -301,6 +357,33 @@ export function AwaySettingsPanel(props: {
               ? "The time you were away is left out. You get a notification, and the card above offers to resume or to count the time away after all."
               : "The browser asks once before it lets the timer notice that you are away."}{" "}
         It works while this page or the app is open, even in the background.
+      </p>
+      <label className="setting-line">
+        <input type="checkbox" checked={settings.remind} onChange={(event) => props.onChange({ ...settings, remind: event.target.checked })} />
+        <span>
+          Remind me when I have been using the computer for{" "}
+          <input
+            className="minutes"
+            type="number"
+            min={1}
+            max={240}
+            value={remindMinutes}
+            aria-label="Minutes before the reminder"
+            onChange={(event) => setRemindMinutes(event.target.value)}
+            onBlur={() => {
+              const value = clampMinutes(Number(remindMinutes));
+              setRemindMinutes(String(value));
+              props.onChange({ ...settings, remindMinutes: value });
+            }}
+          />{" "}
+          minutes with no timer running.
+        </span>
+      </label>
+      <p className="setting-note">
+        {props.access === "granted"
+          ? "Only time you are actually using the computer counts, in any app."
+          : "Without idle detection, only time with this page in front counts."}{" "}
+        The reminder has a Resume button that starts your last project again.
       </p>
       {needsAllowing ? (
         <button type="button" className="primary" onClick={props.onAllow}>

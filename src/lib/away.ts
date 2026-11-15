@@ -5,9 +5,13 @@ export interface AwaySettings {
   enabled: boolean;
   /** How long without touching the computer counts as away. */
   minutes: number;
+  /** Whether to remind the person that nothing runs while they are using the computer. */
+  remind: boolean;
+  /** After how many minutes of use with nothing running. */
+  remindMinutes: number;
 }
 
-export const defaultAwaySettings: AwaySettings = { enabled: true, minutes: 10 };
+export const defaultAwaySettings: AwaySettings = { enabled: true, minutes: 10, remind: true, remindMinutes: 20 };
 export const MIN_AWAY_MINUTES = 1;
 export const MAX_AWAY_MINUTES = 240;
 
@@ -22,6 +26,8 @@ export function readAwaySettings(raw: string | null): AwaySettings {
     return {
       enabled: typeof value.enabled === "boolean" ? value.enabled : defaultAwaySettings.enabled,
       minutes: typeof value.minutes === "number" ? clampMinutes(value.minutes) : defaultAwaySettings.minutes,
+      remind: typeof value.remind === "boolean" ? value.remind : defaultAwaySettings.remind,
+      remindMinutes: typeof value.remindMinutes === "number" ? clampMinutes(value.remindMinutes) : defaultAwaySettings.remindMinutes,
     };
   } catch {
     return defaultAwaySettings;
@@ -79,4 +85,14 @@ export function pausedBecause(why: AwayReason): string {
   if (why === "locked") return "the screen was locked";
   if (why === "asleep") return "the computer was asleep";
   return "you were away";
+}
+
+/**
+ * Whether to remind the person that nothing runs: they have been using the computer without
+ * a break since `activeSince`, for at least `minutes`, and were not reminded in that time.
+ */
+export function shouldRemind(activeSince: number | null, lastReminded: number, now: number, minutes: number): boolean {
+  if (activeSince === null) return false;
+  const span = minutes * 60_000;
+  return now - activeSince >= span && now - lastReminded >= span;
 }
