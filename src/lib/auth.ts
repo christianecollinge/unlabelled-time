@@ -20,7 +20,7 @@ import {
 
 export const SESSION_COOKIE = "time_session";
 export const PKCE_COOKIE = "time_pkce";
-/** Kept only so that signing out can end the Keycloak session without a question. */
+/** Kept only so that Sign in with another account can end the Keycloak session without a question. */
 export const ID_TOKEN_COOKIE = "time_idt";
 
 const SESSION_HOURS = 12;

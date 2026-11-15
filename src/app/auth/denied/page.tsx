@@ -12,7 +12,7 @@ export default async function Denied({ searchParams }: { searchParams: Promise<{
     <AuthScreen
       title={failed ? "Sign-in did not complete" : "This account has no access to Unlabelled Time"}
       text={failed ? "Please try again." : "Your account has not been given access to this app. If that is a mistake, get in touch."}
-      action={failed ? { href: "/auth/login", label: "Sign in again" } : { href: "/auth/logout", label: "Sign in with another account" }}
+      action={failed ? { href: "/auth/login", label: "Sign in again" } : { href: "/auth/switch-account", label: "Sign in with another account" }}
     />
   );
 }
