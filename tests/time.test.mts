@@ -8,7 +8,10 @@ import {
   createProject,
   deleteEntry,
   deleteProject,
+  deleteTask,
+  entriesBetween,
   Refused,
+  renameTask,
   resumeTimer,
   snapshot,
   startTimer,
@@ -197,4 +200,58 @@ test("the one-button control pauses what runs and resumes the last thing", async
   assert.equal(running?.projectId, p);
   assert.equal(running?.note, "calls");
   await toggleTimer(db, cy);
+});
+
+test("tasks are made by naming them, belong to one project, and keep their time when deleted", async () => {
+  const p = await createProject(db, ana, { name: "Tasks" });
+  const q = await createProject(db, ana, { name: "Other" });
+  const first = await startTimer(db, ana, { projectId: p, task: " Design  work " });
+  let state = await snapshot(db, ana);
+  const design = state.tasks.find((t) => t.projectId === p && t.name === "Design work")!;
+  assert.ok(design);
+  assert.equal(state.running?.taskId, design.id);
+  // The same name, whatever the capitals, is the same task.
+  const second = await startTimer(db, ana, { projectId: p, task: "design WORK" });
+  state = await snapshot(db, ana);
+  assert.equal(state.running?.taskId, design.id);
+  assert.equal(state.tasks.filter((t) => t.projectId === p).length, 1);
+  await stopTimer(db, ana);
+  // Resuming keeps the task.
+  await resumeTimer(db, ana);
+  assert.equal((await snapshot(db, ana)).running?.taskId, design.id);
+  await stopTimer(db, ana);
+  // A task of another project is refused; moving an entry drops its task.
+  await assert.rejects(startTimer(db, ana, { projectId: q, task: { id: design.id } }), /not part of this project/);
+  await updateEntry(db, ana, first, { projectId: q });
+  assert.equal((await snapshot(db, ana)).entries.find((e) => e.id === first)!.taskId, null);
+  // An empty name means no task.
+  await updateEntry(db, ana, second, { task: "" });
+  assert.equal((await snapshot(db, ana)).entries.find((e) => e.id === second)!.taskId, null);
+  await updateEntry(db, ana, second, { task: "Calls" });
+  const calls = (await snapshot(db, ana)).tasks.find((t) => t.projectId === p && t.name === "Calls")!;
+  await assert.rejects(renameTask(db, ana, calls.id, { name: "DESIGN work" }), /already has a task/);
+  await renameTask(db, ana, calls.id, { name: "Phone calls" });
+  await assert.rejects(renameTask(db, ben, calls.id, { name: "Ben's" }), /no longer exists/);
+  await assert.rejects(deleteTask(db, ben, calls.id), Refused);
+  await deleteTask(db, ana, calls.id);
+  state = await snapshot(db, ana);
+  assert.equal(state.tasks.some((t) => t.id === calls.id), false);
+  const kept = state.entries.find((e) => e.id === second)!;
+  assert.equal(kept.taskId, null);
+  assert.equal(kept.projectId, p);
+});
+
+test("a period's entries include those that overlap it, and nobody else's", async () => {
+  const p = await createProject(db, cy, { name: "Period" });
+  const base = Date.parse("2026-03-02T09:00:00Z");
+  const inside = await addEntry(db, cy, { projectId: p, startedAt: new Date(base).toISOString(), endedAt: new Date(base + hour).toISOString() });
+  const overlapping = await addEntry(db, cy, { projectId: p, startedAt: new Date(base - 2 * hour).toISOString(), endedAt: new Date(base - 0.5 * hour).toISOString() });
+  await addEntry(db, cy, { projectId: p, startedAt: new Date(base - 5 * hour).toISOString(), endedAt: new Date(base - 4 * hour).toISOString() });
+  const from = new Date(base - hour).toISOString();
+  const to = new Date(base + 3 * hour).toISOString();
+  assert.deepEqual((await entriesBetween(db, cy, { from, to })).map((e) => e.id), [overlapping, inside]);
+  assert.deepEqual(await entriesBetween(db, ben, { from, to }), []);
+  await assert.rejects(entriesBetween(db, cy, { from: to, to: from }), /ends before/);
+  await assert.rejects(entriesBetween(db, cy, { from: "2020-01-01T00:00:00Z", to }), /at most/);
+  await assert.rejects(entriesBetween(db, cy, { from: "soon", to }), Refused);
 });

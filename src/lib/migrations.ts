@@ -73,6 +73,31 @@ CREATE INDEX time_entries_project ON time_entries (project_id, started_at DESC);
 CREATE UNIQUE INDEX time_entries_one_running ON time_entries (workspace_id) WHERE ended_at IS NULL;
 `,
   },
+  {
+    version: 2,
+    name: "tasks inside projects",
+    sql: `
+-- A task is a part of a project ("Design", "Calls"); time can be put on one.
+CREATE TABLE tasks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  name text NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, project_id, id),
+  FOREIGN KEY (workspace_id, project_id) REFERENCES projects (workspace_id, id) ON DELETE CASCADE
+);
+-- One task of a name per project, whatever the capitals.
+CREATE UNIQUE INDEX tasks_name ON tasks (project_id, lower(name));
+
+-- An entry's task must be a task of the entry's own project. Deleting a task
+-- keeps its time on the project, without a task.
+ALTER TABLE time_entries ADD COLUMN task_id uuid;
+ALTER TABLE time_entries ADD FOREIGN KEY (workspace_id, project_id, task_id)
+  REFERENCES tasks (workspace_id, project_id, id) ON DELETE SET NULL (task_id);
+CREATE INDEX time_entries_task ON time_entries (task_id) WHERE task_id IS NOT NULL;
+`,
+  },
 ];
 
 // Held while the schema is brought up to date, so two instances starting at

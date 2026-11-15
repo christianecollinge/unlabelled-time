@@ -2,11 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ago, clock, entrySeconds, fromLocalInput, hoursMinutes, secondsWithin, startOfDay, startOfWeek, toLocalInput } from "@/lib/format";
-import { projectColors, type Entry, type Project, type ProjectColor, type Snapshot } from "@/lib/types";
+import { projectColors, type Entry, type Project, type ProjectColor, type Snapshot, type Task } from "@/lib/types";
 import Link from "next/link";
 import { Wordmark } from "./wordmark";
 import { pausedBecause, readPaused, type AwayReason, type AwaySettings, type PausedInfo } from "@/lib/away";
-import { AwaySettingsPanel, closeNotifications, notify, store, stored, useAppShell, useAwaySettings, useAwayWatch, usePauseKey } from "./away";
+import {
+  AwaySettingsPanel,
+  closeNotifications,
+  notify,
+  store,
+  stored,
+  useAppShell,
+  useAwaySettings,
+  useAwayWatch,
+  useNothingRunningReminder,
+  usePauseKey,
+} from "./away";
+import { QuickSwitcher, useSwitcherKey } from "./switcher";
+import { WeekView } from "./week";
+import { ExportPanel } from "./export";
 
 const PAUSED_KEY = "time.paused";
 const INTRODUCED_KEY = "time.away.introduced";
@@ -67,6 +81,8 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
   const [showArchived, setShowArchived] = useState(false);
   const [paused, setPausedState] = useState<PausedInfo | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showSwitcher, setShowSwitcher] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   // Whether the person has seen (or waved off) the note about pausing when away.
   const [introduced, setIntroduced] = useState(true);
   const now = useNow(current);
@@ -97,9 +113,17 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
     } else {
       load();
     }
+    // Opened from the app icon's "Start a project…" (?do=switch).
+    // The address is tidied only once it has been acted on, so a second run of this effect
+    // (React runs it twice in development) still sees it.
+    const openSwitcher = url.searchParams.get("do") === "switch";
     const first = window.setTimeout(() => {
       setPausedState(readPaused(stored(PAUSED_KEY)));
       setIntroduced(stored(INTRODUCED_KEY) !== null);
+      if (openSwitcher) {
+        window.history.replaceState(null, "", "/");
+        setShowSwitcher(true);
+      }
     }, 0);
     const again = () => {
       if (document.visibilityState === "visible") load();
@@ -115,7 +139,7 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
   const setPaused = useCallback((info: PausedInfo | null) => {
     setPausedState(info);
     store(PAUSED_KEY, info ? JSON.stringify(info) : null);
-    if (!info) closeNotifications();
+    if (!info) closeNotifications("time-paused");
   }, []);
 
   const act = useCallback(async (method: string, path: string, body?: object): Promise<boolean> => {
@@ -134,6 +158,8 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
 
   const projects = useMemo(() => state?.projects ?? [], [state]);
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  const tasks = useMemo(() => state?.tasks ?? [], [state]);
+  const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
   const active = projects.filter((p) => !p.archived);
   const archived = projects.filter((p) => p.archived);
   const running = state?.running ?? null;
@@ -170,11 +196,24 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
     [running, runningProject, current, act, setPaused],
   );
   useAwayWatch({ running: Boolean(running), settings: away.settings, access: away.access, onAway });
+  const onRemind = useCallback(() => {
+    const minutes = away.settings?.remindMinutes ?? 20;
+    const resumable = lastProject && !lastProject.archived ? lastProject : null;
+    notify(
+      "No timer is running",
+      `You have been at the computer for ${minutes} minute${minutes === 1 ? "" : "s"} without recording time.${resumable ? ` Resume ${resumable.name}?` : " Open Unlabelled Time to start one."}`,
+      {},
+      { tag: "time-reminder", resume: Boolean(resumable) },
+    );
+  }, [away.settings, lastProject]);
+  useNothingRunningReminder({ running: Boolean(running), settings: away.settings, access: away.access, onRemind });
   const shell = useAppShell(Boolean(running), load);
   const toggle = useCallback(() => {
     if (!busy) act("POST", "/api/timer/toggle");
   }, [busy, act]);
   usePauseKey(toggle);
+  const openSwitcher = useCallback(() => setShowSwitcher(true), []);
+  useSwitcherKey(openSwitcher);
 
   const totals = useMemo(() => {
     const entries = state?.entries ?? [];
@@ -203,7 +242,19 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
 
   return (
     <div className="app">
-      <Header viewer={viewer} away={away.settings} onSettings={() => setShowSettings(!showSettings)} settingsOpen={showSettings} />
+      <Header viewer={viewer} away={away.settings} onSettings={() => setShowSettings(!showSettings)} settingsOpen={showSettings} onSwitch={active.length ? openSwitcher : undefined} />
+      {showSwitcher && active.length ? (
+        <QuickSwitcher
+          projects={active}
+          tasks={tasks}
+          running={running}
+          busy={busy}
+          onStart={(projectId, note, taskId) => act("POST", "/api/timer", { projectId, note, ...(taskId ? { task: { id: taskId } } : {}) })}
+          onPause={() => act("DELETE", "/api/timer")}
+          onNote={(note) => running && act("PATCH", `/api/entries/${running.id}`, { note })}
+          onClose={() => setShowSwitcher(false)}
+        />
+      ) : null}
       <main className="page">
         {showSettings && away.settings ? (
           <AwaySettingsPanel
@@ -219,6 +270,10 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
           />
         ) : null}
 
+        {showExport ? (
+          <ExportPanel state={state} projects={projects} byId={byId} taskById={taskById} now={now} onClose={() => setShowExport(false)} />
+        ) : null}
+
         <RunningCard
           key={running?.id ?? "idle"}
           running={running}
@@ -227,6 +282,10 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
           busy={busy}
           onStop={() => act("DELETE", "/api/timer")}
           onNote={(note) => running && act("PATCH", `/api/entries/${running.id}`, { note })}
+          task={running?.taskId ? taskById.get(running.taskId) : undefined}
+          projectTasks={running ? tasks.filter((t) => t.projectId === running.projectId) : []}
+          onTask={(task) => running && act("PATCH", `/api/entries/${running.id}`, { task })}
+          lastTask={last?.taskId ? taskById.get(last.taskId) : undefined}
           hasProjects={active.length > 0}
           paused={paused && paused.entryId === last?.id ? paused : null}
           last={last && lastProject && !lastProject.archived ? { entry: last, project: lastProject } : null}
@@ -279,6 +338,8 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
           <Stat value={hoursMinutes(allTime)} label="All time" />
           <Stat value={String(active.length)} label={active.length === 1 ? "Project" : "Projects"} />
         </section>
+
+        <WeekView state={state} projects={projects} byId={byId} now={now} />
 
         <div className="columns">
           <section className="panel projects-panel" aria-labelledby="projects-title">
@@ -334,6 +395,12 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
             entries={state.entries}
             projects={projects}
             byId={byId}
+            tasks={tasks}
+            taskById={taskById}
+            onExport={() => {
+              setShowExport(true);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
             filter={filter}
             onClearFilter={() => setFilter(null)}
             now={now}
@@ -346,7 +413,7 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
   );
 }
 
-function Header(props: { viewer: ViewerInfo | null; away?: AwaySettings | null; onSettings?: () => void; settingsOpen?: boolean }) {
+function Header(props: { viewer: ViewerInfo | null; away?: AwaySettings | null; onSettings?: () => void; settingsOpen?: boolean; onSwitch?: () => void }) {
   const { viewer, away } = props;
   return (
     <header className="top">
@@ -354,6 +421,11 @@ function Header(props: { viewer: ViewerInfo | null; away?: AwaySettings | null; 
         <Wordmark />
       </Link>
       <div className="who">
+        {props.onSwitch ? (
+          <button type="button" className="quiet switch-button" onClick={props.onSwitch} title="Start a project by typing its name (⌘K or /)">
+            Start… <kbd>⌘K</kbd>
+          </button>
+        ) : null}
         {props.onSettings && away ? (
           <button type="button" className="quiet" onClick={props.onSettings} aria-expanded={props.settingsOpen} title="When you step away, and quick pause">
             {away.enabled ? `Auto-pause: ${away.minutes} min` : "Auto-pause: off"}
@@ -393,6 +465,12 @@ function RunningCard(props: {
   hasProjects: boolean;
   onStop: () => void;
   onNote: (note: string) => void;
+  /** The running entry's task, and the tasks of its project to choose from. */
+  task: Task | undefined;
+  projectTasks: Task[];
+  onTask: (task: string) => void;
+  /** The task of what Resume starts again. */
+  lastTask: Task | undefined;
   /** Set when the timer paused itself because the person was away. */
   paused: PausedInfo | null;
   /** What Resume starts again. */
@@ -405,6 +483,7 @@ function RunningCard(props: {
   // The card is keyed by the running entry, so a new timer starts with its own note.
   const [note, setNote] = useState(running?.note ?? "");
   const runningNote = running?.note ?? "";
+  const [task, setTask] = useState(props.task?.name ?? "");
 
   useEffect(() => {
     document.title = running && project ? `${clock(props.seconds)} · ${project.name}` : "Unlabelled Time";
@@ -420,6 +499,7 @@ function RunningCard(props: {
             ❚❚&nbsp; Paused at {timeOf(paused.at)} because {pausedBecause(paused.why)}
           </p>
           <h1>{last.project.name}</h1>
+          {props.lastTask ? <p className="task-line">{props.lastTask.name}</p> : null}
           {last.entry.note ? <p className="paused-note">{last.entry.note}</p> : null}
           <p className="paused-help">The {awayFor} since then is not counted.</p>
         </div>
@@ -452,6 +532,7 @@ function RunningCard(props: {
           <div className="now-clock">
             <button type="button" className="quiet resume" data-color={props.last.project.color} disabled={props.busy} onClick={() => props.onResume(false)}>
               <span className="play-triangle" aria-hidden="true" /> Resume {props.last.project.name}
+              {props.lastTask ? ` › ${props.lastTask.name}` : ""}
             </button>
           </div>
         ) : null}
@@ -467,6 +548,22 @@ function RunningCard(props: {
           {new Date(running.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </p>
         <h1>{project.name}</h1>
+        <input
+          className="note-input task-input"
+          value={task}
+          placeholder="Task (optional)"
+          aria-label="Task for this time"
+          list="running-tasks"
+          maxLength={120}
+          onChange={(event) => setTask(event.target.value)}
+          onBlur={() => task.trim() !== (props.task?.name ?? "") && props.onTask(task)}
+          onKeyDown={(event) => event.key === "Enter" && (event.currentTarget as HTMLInputElement).blur()}
+        />
+        <datalist id="running-tasks">
+          {props.projectTasks.map((t) => (
+            <option key={t.id} value={t.name} />
+          ))}
+        </datalist>
         <input
           className="note-input"
           value={note}
@@ -633,6 +730,9 @@ function Entries(props: {
   entries: Entry[];
   projects: Project[];
   byId: Map<string, Project>;
+  tasks: Task[];
+  taskById: Map<string, Task>;
+  onExport: () => void;
   filter: string | null;
   onClearFilter: () => void;
   now: number;
@@ -640,8 +740,14 @@ function Entries(props: {
   act: (method: string, path: string, body?: object) => Promise<boolean>;
 }) {
   const [adding, setAdding] = useState(false);
+  const [taskFilter, setTaskFilter] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-  const shown = props.filter ? props.entries.filter((e) => e.projectId === props.filter) : props.entries;
+  // A task filter only holds while its project is the one shown.
+  const filteredTask = taskFilter && props.filter && props.taskById.get(taskFilter)?.projectId === props.filter ? taskFilter : null;
+  const shown = props.filter
+    ? props.entries.filter((e) => e.projectId === props.filter && (!filteredTask || e.taskId === filteredTask))
+    : props.entries;
+  const projectTasks = props.filter ? props.tasks.filter((t) => t.projectId === props.filter) : [];
   const days = useMemo(() => {
     const groups: { day: Date; entries: Entry[] }[] = [];
     for (const entry of shown) {
@@ -665,16 +771,48 @@ function Entries(props: {
           </button>
         ) : null}
         <span className="spacer" />
+        {props.entries.length > 0 ? (
+          <button type="button" className="quiet" onClick={props.onExport}>
+            Export
+          </button>
+        ) : null}
         {choosable.length > 0 && !adding ? (
           <button type="button" className="quiet" onClick={() => setAdding(true)}>
             + Add time
           </button>
         ) : null}
       </div>
+      {projectTasks.length > 0 ? (
+        <div className="task-strip" aria-label="Tasks of this project">
+          {projectTasks.map((t) => (
+            <span key={t.id} className={`task-chip${filteredTask === t.id ? " is-on" : ""}`}>
+              <button type="button" className="task-chip-name" aria-pressed={filteredTask === t.id} onClick={() => setTaskFilter(filteredTask === t.id ? null : t.id)} title="Show only this task's time">
+                {t.name} <b>{hoursMinutes(t.totalSeconds)}</b>
+              </button>
+              <button
+                type="button"
+                className="task-chip-edit"
+                title="Rename or delete this task"
+                aria-label={`Rename or delete ${t.name}`}
+                disabled={props.busy}
+                onClick={() => {
+                  const name = window.prompt(`Rename “${t.name}”. Leave it empty to delete the task; its time stays on the project.`, t.name);
+                  if (name === null || name.trim() === t.name) return;
+                  if (name.trim()) props.act("PATCH", `/api/tasks/${t.id}`, { name });
+                  else props.act("DELETE", `/api/tasks/${t.id}`);
+                }}
+              >
+                ✎
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
       {adding ? (
         <EntryForm
+          tasks={props.tasks}
           projects={choosable}
-          initial={{ projectId: props.filter ?? choosable[0]?.id ?? "", startedAt: new Date(props.now - 3_600_000).toISOString(), endedAt: new Date(props.now).toISOString(), note: "" }}
+          initial={{ projectId: props.filter ?? choosable[0]?.id ?? "", startedAt: new Date(props.now - 3_600_000).toISOString(), endedAt: new Date(props.now).toISOString(), note: "", task: "" }}
           busy={props.busy}
           submitLabel="Add"
           onCancel={() => setAdding(false)}
@@ -697,8 +835,9 @@ function Entries(props: {
                   return (
                     <li key={entry.id} className="entry editing">
                       <EntryForm
+                        tasks={props.tasks}
                         projects={props.projects.filter((p) => !p.archived || p.id === entry.projectId)}
-                        initial={entry}
+                        initial={{ ...entry, task: entry.taskId ? (props.taskById.get(entry.taskId)?.name ?? "") : "" }}
                         busy={props.busy}
                         submitLabel="Save"
                         onCancel={() => setEditing(null)}
@@ -713,7 +852,10 @@ function Entries(props: {
                     <button type="button" className="entry-button" onClick={() => setEditing(entry.id)} title="Change this time">
                       <span className="swatch" />
                       <span className="entry-text">
-                        <span className="entry-project">{project?.name ?? "Deleted project"}</span>
+                        <span className="entry-project">
+                          {project?.name ?? "Deleted project"}
+                          {entry.taskId && props.taskById.get(entry.taskId) ? <span className="entry-task"> › {props.taskById.get(entry.taskId)!.name}</span> : null}
+                        </span>
                         {entry.note ? <span className="entry-note">{entry.note}</span> : null}
                       </span>
                       <span className="entry-times">
@@ -734,17 +876,19 @@ function Entries(props: {
 
 interface EntryValues {
   projectId: string;
+  task: string;
   startedAt: string;
   endedAt: string | null;
   note: string;
 }
 
 function EntryForm(props: {
+  tasks: Task[];
   projects: Project[];
   initial: EntryValues;
   busy: boolean;
   submitLabel: string;
-  onSubmit: (values: { projectId: string; startedAt: string; endedAt?: string; note: string }) => void;
+  onSubmit: (values: { projectId: string; task: string; startedAt: string; endedAt?: string; note: string }) => void;
   onCancel: () => void;
   onDelete?: () => void;
 }) {
@@ -752,6 +896,7 @@ function EntryForm(props: {
   const [start, setStart] = useState(toLocalInput(props.initial.startedAt));
   const [end, setEnd] = useState(props.initial.endedAt ? toLocalInput(props.initial.endedAt) : "");
   const [note, setNote] = useState(props.initial.note);
+  const [task, setTask] = useState(props.initial.task);
   const [problem, setProblem] = useState<string | null>(null);
   const running = props.initial.endedAt === null;
   const first = useRef<HTMLSelectElement>(null);
@@ -765,7 +910,7 @@ function EntryForm(props: {
     if (!running && !endedAt) return setProblem("Give an end.");
     if (endedAt && endedAt < startedAt) return setProblem("The end is before the start.");
     setProblem(null);
-    props.onSubmit({ projectId, startedAt, ...(endedAt ? { endedAt } : {}), note });
+    props.onSubmit({ projectId, task, startedAt, ...(endedAt ? { endedAt } : {}), note });
   };
 
   return (
@@ -779,6 +924,17 @@ function EntryForm(props: {
             </option>
           ))}
         </select>
+      </label>
+      <label className="wide">
+        <span>Task</span>
+        <input value={task} onChange={(event) => setTask(event.target.value)} placeholder="Optional: pick one or type a new one" list="entry-form-tasks" maxLength={120} />
+        <datalist id="entry-form-tasks">
+          {props.tasks
+            .filter((t) => t.projectId === projectId)
+            .map((t) => (
+              <option key={t.id} value={t.name} />
+            ))}
+        </datalist>
       </label>
       <label>
         <span>From</span>
