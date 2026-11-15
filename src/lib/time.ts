@@ -91,6 +91,27 @@ export async function snapshot(db: Queryable, workspaceId: string): Promise<Snap
   return { projects: projects.map(toProject), tasks: tasks.map(toTask), running: all.find((e) => e.endedAt === null) ?? null, entries: all, now: iso(now)! };
 }
 
+/** The longest stretch one request can read, for the week view and exports. */
+const MAX_RANGE_DAYS = 400;
+
+/**
+ * Every entry that has time between `from` and `to`, oldest first, for the week view and
+ * exports. The page works out days in its own time zone, so it is given whole entries.
+ */
+export async function entriesBetween(db: Queryable, workspaceId: string, input: { from?: unknown; to?: unknown }): Promise<Entry[]> {
+  const from = cleanTime(input.from, "The start of the period");
+  const to = cleanTime(input.to, "The end of the period");
+  if (to <= from) throw new Refused("The period ends before it starts.");
+  if (to.getTime() - from.getTime() > MAX_RANGE_DAYS * 86_400_000) throw new Refused(`A period can be at most ${MAX_RANGE_DAYS} days.`);
+  const rows = await db.query<EntryRow>(
+    `SELECT id, project_id, task_id, started_at, ended_at, note FROM time_entries
+      WHERE workspace_id = $1 AND started_at < $3 AND COALESCE(ended_at, now()) > $2
+      ORDER BY started_at, created_at`,
+    [workspaceId, from, to],
+  );
+  return rows.map(toEntry);
+}
+
 function cleanName(value: unknown): string {
   const name = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
   if (!name) throw new Refused("A project needs a name.");

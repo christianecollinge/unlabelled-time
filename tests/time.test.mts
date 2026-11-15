@@ -9,6 +9,7 @@ import {
   deleteEntry,
   deleteProject,
   deleteTask,
+  entriesBetween,
   Refused,
   renameTask,
   resumeTimer,
@@ -238,4 +239,19 @@ test("tasks are made by naming them, belong to one project, and keep their time 
   const kept = state.entries.find((e) => e.id === second)!;
   assert.equal(kept.taskId, null);
   assert.equal(kept.projectId, p);
+});
+
+test("a period's entries include those that overlap it, and nobody else's", async () => {
+  const p = await createProject(db, cy, { name: "Period" });
+  const base = Date.parse("2026-03-02T09:00:00Z");
+  const inside = await addEntry(db, cy, { projectId: p, startedAt: new Date(base).toISOString(), endedAt: new Date(base + hour).toISOString() });
+  const overlapping = await addEntry(db, cy, { projectId: p, startedAt: new Date(base - 2 * hour).toISOString(), endedAt: new Date(base - 0.5 * hour).toISOString() });
+  await addEntry(db, cy, { projectId: p, startedAt: new Date(base - 5 * hour).toISOString(), endedAt: new Date(base - 4 * hour).toISOString() });
+  const from = new Date(base - hour).toISOString();
+  const to = new Date(base + 3 * hour).toISOString();
+  assert.deepEqual((await entriesBetween(db, cy, { from, to })).map((e) => e.id), [overlapping, inside]);
+  assert.deepEqual(await entriesBetween(db, ben, { from, to }), []);
+  await assert.rejects(entriesBetween(db, cy, { from: to, to: from }), /ends before/);
+  await assert.rejects(entriesBetween(db, cy, { from: "2020-01-01T00:00:00Z", to }), /at most/);
+  await assert.rejects(entriesBetween(db, cy, { from: "soon", to }), Refused);
 });

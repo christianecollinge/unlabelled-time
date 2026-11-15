@@ -19,6 +19,7 @@ import {
   usePauseKey,
 } from "./away";
 import { QuickSwitcher, useSwitcherKey } from "./switcher";
+import { WeekView } from "./week";
 
 const PAUSED_KEY = "time.paused";
 const INTRODUCED_KEY = "time.away.introduced";
@@ -331,6 +332,8 @@ export function TimeApp({ viewer }: { viewer: ViewerInfo | null }) {
           <Stat value={hoursMinutes(allTime)} label="All time" />
           <Stat value={String(active.length)} label={active.length === 1 ? "Project" : "Projects"} />
         </section>
+
+        <WeekView state={state} projects={projects} byId={byId} now={now} />
 
         <div className="columns">
           <section className="panel projects-panel" aria-labelledby="projects-title">
